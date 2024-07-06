@@ -33,29 +33,23 @@ In WordCount, the input for the mapper is, as previously described, a key-value 
 
 This is the code for the mapper:
 
-public static class Map extends Mapper\<LongWritable, Text, Text, IntWritable\> {
+```java
+public static class Map extends Mapper<LongWritable, Text, Text, IntWritable> {
 
-private final static IntWritable one = new IntWritable(1);
+    private final static IntWritable one = new IntWritable(1);
+    private Text word = new Text();
 
-private Text word = new Text();
+    public void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+        String line = value.toString();
+        StringTokenizer tokenizer = new StringTokenizer(line);
 
-public void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
-
-String line = value.toString();
-
-StringTokenizer tokenizer = new StringTokenizer(line);
-
-while (tokenizer.hasMoreTokens()) {
-
-word.set(tokenizer.nextToken());
-
-context.write(word, one);
-
+        while (tokenizer.hasMoreTokens()) {
+            word.set(tokenizer.nextToken());
+            context.write(word, one);
+        }
+    }
 }
-
-}
-
-}
+```
 
 In WordCount, the mapper splits incoming lines so that the output keys are the words from the line while the output values are always the value “1” (each word instance counts as one). The mapper ignores the input key because in this case, it is not needed for our logic.
 
@@ -63,25 +57,25 @@ In WordCount, the mapper splits incoming lines so that the output keys are the w
 
 Later on the reducer will simply sump up all the “1” values for a given word (key), to determine how many times a particular word appeared in the text. Since Hadoop will group all the same keys into one single key with its values being a list of occurrences (a list of number 1s), all the mapper needs to do is add up the list and generate as its output, the same word as the key and the total sum value as the value:
 
-public static class Reduce extends Reducer\<Text, IntWritable, Text, IntWritable\> {
+```java
+public static class Reduce extends Reducer<Text, IntWritable, Text, IntWritable> {
 
-public void reduce(Text key, Iterable\<IntWritable\> values, Context context) throws IOException, InterruptedException {
+    public void reduce(Text key, Iterable<IntWritable> values, Context context) throws IOException, InterruptedException {
+        if (key.getLength() == 0) {
+            // do nothing for empty keys
+            return;
+        }
 
-if(key.getLength() == 0) // do nothing for empty keys
+        int sum = 0;
+        for (IntWritable value : values) {
+            // otherwise sum up the values
+            sum += value.get();
+        }
 
-return;
-
-int sum = 0;
-
-for (IntWritable value : values) // otherwise sump up the values
-
-sum += value.get();
-
-context.write(key, new IntWritable(sum));
-
+        context.write(key, new IntWritable(sum));
+    }
 }
-
-}
+```
 
 ### <span id="_Toc308702078" class="anchor"><span id="_Toc188339636" class="anchor"></span></span>Input and output
 
@@ -121,21 +115,19 @@ All these generators are in the GenText object.
 
 First, generators to create random strings either from a list of characters, or from a generator of random characters:
 
+```scala
 import org.scalacheck.Gen
-
-import org.scalacheck.Gen.\_
+import org.scalacheck.Gen._
 
 def genString(genc: Gen[Char]): Gen[String] = for {
-
-lst \<- Gen.listOf(genc)
-
+  lst <- Gen.listOf(genc)
 } yield {
-
-lst.foldLeft(new StringBuilder)(\_+=\_).toString()
-
+  lst.foldLeft(new StringBuilder)(_ += _).toString()
 }
 
 def genString(chars: Seq[Char]): Gen[String] = genString(Gen.oneOf(chars))
+
+```
 
 The first generator generates a randomly long list of characters, as selected from the random character generator. The random character generator can be initialized with an arbitrary and unlimited number of characters. The list of character is converted to a string using StringBuilder.
 
@@ -143,77 +135,68 @@ The second generator builds on the first one, and the list of characters can be 
 
 The next set of generators used the one we have just defined to create strings that satisfy the property that are never empty:
 
+```scala
 def genNonemptyString(genc: Gen[Char]): Gen[String] =
-
-genc.combine(genString(genc))((x,y) =\> Some(x.get + y.get))
+  genc.combine(genString(genc))((x, y) => Some(x.get + y.get))
 
 def genNonemptyString(chars: Seq[Char]): Gen[String] =
-
-genNonemptyString(Gen.oneOf(chars))
+  genNonemptyString(Gen.oneOf(chars))
+```
 
 Just like before, the first generator contains the generation logic; it uses another random character generator to create the characters for the non-empty string while the second generator allows providing a pre-defined static list of characters that will be used as part of the string.
 
+```scala
 implicit def seqToChar(coll: Seq[Int]): Seq[Char] = for {
-
-c \<- coll
-
-} yield(c.toChar)
+  c <- coll
+} yield (c.toChar)
 
 val spaceChars: Seq[Char] = Vector(9, 32)
-
 val nonWhitespaceChars: Seq[Char] = (33 to 126)
 
 val genWord = genNonemptyString(nonWhitespaceChars)
-
 val genWhitespace = genNonemptyString(spaceChars)
-
-These generators build non-empty words, or strings which contain characters considered blank spaces (in the ASCII range 9 to 32). They are used by other generators and property checks below.
-
+```
+These generators build non-empty words, or strings which contain characters considered blank spaces (in the ASCII range 9 to 32).
+They are used by other generators and property checks below.
+```scala
 val genLineWithList = for {
-
-lst \<- Gen.listOf(genWord)
-
-} yield (lst.foldLeft(new StringBuilder)(\_++=\_ + genWhitespace.sample.get).toString.trim(), lst)
+  lst <- Gen.listOf(genWord)
+} yield (lst.foldLeft(new StringBuilder)(_ ++= _ + genWhitespace.sample.get).toString.trim(), lst)
 
 val genLineWithBag = for {
+  lst <- Gen.listOf(genWord)
+} yield (lst.foldLeft(new StringBuilder)(_ ++= _ + genWhitespace.sample.get).toString.trim(), bagOf(lst))
 
-lst \<- Gen.listOf(genWord)
-
-} yield (lst.foldLeft(new StringBuilder)(\_++=\_ + genWhitespace.sample.get).toString.trim(), bagOf(lst))
-
+```
 Both generators above generate tuples, where the first item is a line of text and the second is either the list or “bag” of the words in the line.
 
 Finally, we can create some arbitrary generators for later usage:
-
+```scala
 val arbGenWord = Arbitrary(genWord)
-
 var arbGenLineWithList = Arbitrary(genLineWithList)
-
 val arbGenLineWithBag = Arbitrary(genLineWithBag)
-
+``
 Now we can move onto creating generators of Hadoop-specific data.
 
 ### Hadoop generators
 
 The following are all generators specific for Hadoop data types:
 
+```scala
 import org.apache.hadoop.io.{Text, LongWritable, IntWritable}
 
-def genLongWritable(upperRange:Int) = for {
-
-num \<- Gen.choose(0, upperRange)
-
-} yield(new LongWritable(num))
+def genLongWritable(upperRange: Int) = for {
+  num <- Gen.choose(0, upperRange)
+} yield new LongWritable(num)
 
 val genIntWritable = for {
-
-num \<- Gen.choose(0, 9999)
-
-} yield(new IntWritable(num))
+  num <- Gen.choose(0, 9999)
+} yield new IntWritable(num)
 
 val genIntWritableList = Gen.listOf(genIntWritable)
 
-def genLongWritableList(upperRange:Int) = Gen.listOf(genLongWritable(upperRange))
+def genLongWritableList(upperRange: Int) = Gen.listOf(genLongWritable(upperRange))
+```
 
 Based on the knowledge acquired so far, the first four generators are rather straightforward: generators for single values of IntWritable and LongWritable, and generators of lists of those two types using Gen.listOf.
 
