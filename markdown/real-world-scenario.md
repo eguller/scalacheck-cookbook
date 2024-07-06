@@ -175,7 +175,7 @@ Finally, we can create some arbitrary generators for later usage:
 val arbGenWord = Arbitrary(genWord)
 var arbGenLineWithList = Arbitrary(genLineWithList)
 val arbGenLineWithBag = Arbitrary(genLineWithBag)
-``
+```
 Now we can move onto creating generators of Hadoop-specific data.
 
 ### Hadoop generators
